@@ -13,10 +13,8 @@ import json
 from scipy.interpolate import griddata
 
 Length = 1 
-E        = 70e3
-nu       = 0.3
-lmbda_np = E*nu/((1+nu)*(1-2*nu))
-mu_np    = E/2/(1+nu)
+lmbda_np = 40384.61538
+mu_np    = 26923.07692
 rho_np   = 2700.
 alpha    = 2.31e-5
 kappa_np = alpha*(2*mu_np + 3*lmbda_np)

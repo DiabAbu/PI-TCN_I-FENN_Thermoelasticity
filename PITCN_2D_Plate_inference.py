@@ -103,24 +103,18 @@ inputs_o = inputs_o.to(device)
 inputs_o.requires_grad_(True);   inputs_o.retain_grad() 
 
 
-# Load dictionary
 with open('T_n_GT.json', 'r') as handle:
     T_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in T_n_GT.items():
     T_n_GT[key] = np.reshape(value["data"], value["shape"])
 
-# Load dictionary
 with open('ux_n_GT.json', 'r') as handle:
     ux_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in ux_n_GT.items():
     ux_n_GT[key] = np.reshape(value["data"], value["shape"])
 
-# Load dictionary
 with open('uy_n_GT.json', 'r') as handle:
     uy_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in uy_n_GT.items():
     uy_n_GT[key] = np.reshape(value["data"], value["shape"])
     
@@ -130,13 +124,11 @@ class Seq2Seq(nn.Module):
         super(Seq2Seq, self).__init__()
         num_channels1  = [16] * 4
         num_channels2  = [16] * 4
-        # num_channels3  = [128] * 5
         enc_out_size   = 8
         act_func       = 'tanh' # tanh relu silu
 
         self.tcn1    = TCN(input_size,        num_channels1, act_func, kernel_size=11, dropout=0.00).double() 
         self.tcn2    = TCN(num_channels1[-1], num_channels2, act_func, kernel_size=11, dropout=0.00).double()
-        # self.tcn3    = TCN(num_channels2[-1], num_channels3, act_func, kernel_size=8, dropout=0.00).double()
         self.encd    = rff.layers.GaussianEncoding(sigma=0.07, input_size=num_channels2[-1], encoded_size=enc_out_size).double()
         self.linear1 = nn.Linear(2*enc_out_size, output_size).double()
         self.init_weights()
@@ -147,7 +139,6 @@ class Seq2Seq(nn.Module):
     def forward(self, x):
         y1  = self.tcn1(x.transpose(1,2))
         y2  = self.tcn2(y1)
-        # y3  = self.tcn3(y2)
         y4  = self.encd(y2.transpose(1,2))
         y5  = self.linear1(y4)
         return y5

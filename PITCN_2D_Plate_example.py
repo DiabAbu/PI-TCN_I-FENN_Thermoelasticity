@@ -12,14 +12,13 @@ from torch import linalg as LA
 import json
 from scipy.interpolate import griddata
 
-# In[15]:
 Length = 1 
 E        = 70e3
 nu       = 0.3
 lmbda_np = E*nu/((1+nu)*(1-2*nu))
 mu_np    = E/2/(1+nu)
 rho_np   = 2700.
-alpha    = 2.31e-5  # thermal expansion coefficient
+alpha    = 2.31e-5
 kappa_np = alpha*(2*mu_np + 3*lmbda_np)
 cV_np    = 910e-6 * rho_np
 k_np     = 237e-6
@@ -98,25 +97,18 @@ inputs_o = torch.tensor(inputs_o).double()
 inputs_o = inputs_o.to(device)
 inputs_o.requires_grad_(True);   inputs_o.retain_grad() 
 
-
-# Load dictionary
 with open('T_n_GT.json', 'r') as handle:
     T_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in T_n_GT.items():
     T_n_GT[key] = np.reshape(value["data"], value["shape"])
 
-# Load dictionary
 with open('ux_n_GT.json', 'r') as handle:
     ux_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in ux_n_GT.items():
     ux_n_GT[key] = np.reshape(value["data"], value["shape"])
 
-# Load dictionary
 with open('uy_n_GT.json', 'r') as handle:
     uy_n_GT = json.load(handle)
-# Convert lists back to numpy arrays
 for key, value in uy_n_GT.items():
     uy_n_GT[key] = np.reshape(value["data"], value["shape"])
 
@@ -127,13 +119,11 @@ class Seq2Seq(nn.Module):
         super(Seq2Seq, self).__init__()
         num_channels1  = [16] * 4
         num_channels2  = [16] * 4
-        # num_channels3  = [128] * 5
         enc_out_size   = 8
         act_func       = 'tanh' # tanh relu silu
 
         self.tcn1    = TCN(input_size,        num_channels1, act_func, kernel_size=11, dropout=0.00).double() 
         self.tcn2    = TCN(num_channels1[-1], num_channels2, act_func, kernel_size=11, dropout=0.00).double()
-        # self.tcn3    = TCN(num_channels2[-1], num_channels3, act_func, kernel_size=8, dropout=0.00).double()
         self.encd    = rff.layers.GaussianEncoding(sigma=0.07, input_size=num_channels2[-1], encoded_size=enc_out_size).double()
         self.linear1 = nn.Linear(2*enc_out_size, output_size).double()
         self.init_weights()
@@ -144,7 +134,6 @@ class Seq2Seq(nn.Module):
     def forward(self, x):
         y1  = self.tcn1(x.transpose(1,2))
         y2  = self.tcn2(y1)
-        # y3  = self.tcn3(y2)
         y4  = self.encd(y2.transpose(1,2))
         y5  = self.linear1(y4)
         return y5
@@ -176,7 +165,6 @@ optimizer_lbgfs = torch.optim.LBFGS(model.parameters(), lr=lr_rate_lbfgs, histor
 # In[26]:
 
 def temperature_change_rate(T):
-  # Calculate the temperature change rate using the finite difference method
     T0    = torch.zeros((T.shape[0], 1, 1)).double()
     T     = torch.cat((T0, T), axis = 1)
     dT_dt = torch.div((T[:, 1:, 0] - T[:, :-1, 0]), torch.tensor(dt_array).double()).unsqueeze(2)
@@ -204,15 +192,12 @@ def temperature_gradient(T, inputs):
 
 
 # In[30]:
-
-
 def heat_flux(T, inputs):
     gradT = temperature_gradient(T, inputs)
     flux  = - k_np * gradT
     return flux
 
 
-# In[31]:
 def flux_divergence(q, inputs):
     # input features: time, x_coord, y_coord, Edot_tr
     dq1dxy = torch.autograd.grad(q[:,:,0].unsqueeze(2), inputs, torch.ones((inputs.size()[0],inputs.size()[1], 1), device=device), create_graph=True, retain_graph=True)[0]
@@ -225,9 +210,6 @@ def flux_divergence(q, inputs):
     return div_q
 
 
-# In[32]:
-
-
 mse_metric = torch.nn.MSELoss()
 # loss_term = torch.nn.HuberLoss(reduction='mean', delta=1.0)
 loss_term = torch.nn.MSELoss()
@@ -238,30 +220,22 @@ l_reg_lambda = 1e-8
 # In[32]:
 
 def loss_function(epoch, inputs_g, T_g, flux_g, inputs_o):
-    
     Edot_tr_g     = inputs_g[:,:,3].unsqueeze(2)/Scale_Edot
     T_ntwrk_g     = get_T(inputs_g)   
     q_g           = heat_flux(T_ntwrk_g, inputs_g)
     div_q         = flux_divergence(q_g, inputs_g)
     Tdot          = temperature_change_rate(T_ntwrk_g)
     R             = cV_np * Tdot + kappa_np * T0_np * Edot_tr_g + div_q
-    # L1            = loss_term(R, torch.zeros_like(R))
     L1            = LA.norm(R)
     
-    # NBC residual
     T_ntwrk_o     = get_T(inputs_o).double()
     q_o           = heat_flux(T_ntwrk_o, inputs_o)
-    # L2            = loss_term(q_o[:,0], torch.zeros_like(q_o[:,0]))
     L2            = LA.norm(q_o[:,0])
 
-    # Temperature data at Gauss points
     R_Tdata_g     = T_ntwrk_g - T_g
-    # L3            = loss_term(R_Tdata_g, torch.zeros_like(R_Tdata_g))
     L3            = LA.norm(R_Tdata_g)
 
-    # Flux data at Gauss points
     R_qdata_g     = q_g - flux_g
-    # L4            = loss_term(R_qdata_g, torch.zeros_like(R_qdata_g))
     L4            = LA.norm(R_qdata_g)
 
     # Total loss
@@ -304,65 +278,3 @@ for epoch in range(epochs_lbfgs):
         print('Model is saved')
     if ConvergenceCheck(tempL , rel_tol_network):
         break
-
-# In[37]:
-
-T_ntwrk_n1  = get_T(inputs_n[:coord_n.shape[0]//4, :, :]).cpu().detach().numpy()
-T_ntwrk_n2  = get_T(inputs_n[coord_n.shape[0]//4:2*coord_n.shape[0]//4, :, :]).cpu().detach().numpy()
-T_ntwrk_n3  = get_T(inputs_n[2*coord_n.shape[0]//4:3*coord_n.shape[0]//4, :, :]).cpu().detach().numpy()
-T_ntwrk_n4  = get_T(inputs_n[3*coord_n.shape[0]//4:, :, :]).cpu().detach().numpy()
-T_ntwrk_n   = np.concatenate((T_ntwrk_n1, T_ntwrk_n2, T_ntwrk_n3, T_ntwrk_n4), axis = 0)
-
-# Error evaluation
-T_n_ifenn  = {}
-abs_error_T  = {}
-rel_error_T  = {}
-for key in T_n_GT.keys():
-    key2               = int(key)
-    T_n_ifenn[key2]    = torch.tensor(T_ntwrk_n[:,key2,:].squeeze()).double() 
-    abs_error_T[key2]  = torch.absolute(T_n_ifenn[key2]  - torch.tensor(T_n_GT[key]))
-    rel_error_T[key2]  = torch.div(abs_error_T[key2], torch.tensor(T_n_GT[key]))   
-
-
-# Separate the columns
-inc_plot = 49
-x  = coord_n[:, 0]
-y  = coord_n[:, 1]
-T  = T_ntwrk_n[:,inc_plot,:].squeeze()
-Ea = abs_error_T[inc_plot].cpu().numpy()
-Er = rel_error_T[inc_plot].cpu().numpy()
-
-# Create a regular grid to interpolate onto
-grid_x, grid_y = np.mgrid[min(x):max(x):100j, min(y):max(y):100j]
-
-# Interpolate the data
-grid_T  = griddata((x, y), T, (grid_x, grid_y), method='cubic')
-grid_Ea = griddata((x, y), Ea, (grid_x, grid_y), method='cubic')
-grid_Er = griddata((x, y), Er, (grid_x, grid_y), method='cubic')
-
-# Create the contour plot
-plt.figure()
-plt.contourf(grid_x, grid_y, grid_T)
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.colorbar(label='Temperature')
-plt.title('Temperature Contours')
-plt.show() 
-
-# Create the contour plot
-plt.figure()
-plt.contourf(grid_x, grid_y, grid_Ea)
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.colorbar()
-plt.title('Absolute Error')
-plt.show() 
-
-# Create the contour plot
-plt.figure()
-plt.contourf(grid_x, grid_y, grid_Er)
-plt.xlabel('X')
-plt.ylabel('Y')
-plt.colorbar()
-plt.title('Relative Error')
-plt.show() 
